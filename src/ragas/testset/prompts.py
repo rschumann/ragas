@@ -357,7 +357,7 @@ clarity: Evaluate the precision and understandability of the information present
 depth: Determine the level of detailed examination and the inclusion of innovative insights within the context. A high score indicates a comprehensive and insightful analysis, while a low score suggests a superficial treatment of the topic.
 structure: Assess how well the content is organized and whether it flows logically. High scores are awarded to contexts that demonstrate coherent organization and logical progression, whereas low scores indicate a lack of structure or clarity in progression.
 relevance: Judge the pertinence of the content to the main topic, awarding high scores to contexts tightly focused on the subject without unnecessary digressions, and low scores to those that are cluttered with irrelevant information.
-Structure your JSON output to reflect these criteria as keys with their corresponding scores as values
+Structure your JSON output to reflect these criteria as keys with their corresponding scores as values. Your response must be a valid JSON object, starting with '{' and ending with '}'. Include only the JSON object in your response, with no additional text, explanations, or formatting. Ensure all keys are in lowercase and use double quotes for both keys and string values. Do not include any comments or extra whitespace in the JSON.
     """,
     output_format_instruction=get_json_format_instructions(ContextScoring),
     examples=[
