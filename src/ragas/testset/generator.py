@@ -336,12 +336,23 @@ class TestsetGenerator:
             self.docstore, InMemoryDocumentStore
         ), "Must be an instance of in-memory docstore"
         assert self.docstore.extractor is not None, "Extractor is not set"
-
+    
+        print(f"Adapting to language: {language}")
+        print(f"Cache directory: {cache_dir}")
+    
         self.docstore.extractor.adapt(language, cache_dir=cache_dir)
+        self.docstore.extractor.save(cache_dir)  # Save extractor changes
+        print(f"Extractor adapted and saved for {language}")
+    
         for evolution in evolutions:
+            print(f"Adapting evolution: {evolution.__class__.__name__}")
             self.init_evolution(evolution)
             evolution.init()
             evolution.adapt(language, cache_dir=cache_dir)
+            evolution.save(cache_dir=cache_dir)  # Save evolution changes
+            print(f"Evolution {evolution.__class__.__name__} adapted and saved")
+    
+        print("Adaptation complete")
 
     def save(
         self, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None
