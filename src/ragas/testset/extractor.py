@@ -1,9 +1,9 @@
 from __future__ import annotations
-
 import logging
 import typing as t
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ragas.llms.json_load import json_loader
 from ragas.testset.prompts import keyphrase_extraction_prompt
@@ -13,9 +13,7 @@ if t.TYPE_CHECKING:
     from ragas.llms.prompt import Prompt
     from ragas.testset.docstore import Node
 
-
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class Extractor(ABC):
@@ -37,7 +35,6 @@ class Extractor(ABC):
         """
         raise NotImplementedError("adapt() is not implemented for {} Extractor")
 
-
 @dataclass
 class KeyphraseExtractor(Extractor):
     extractor_prompt: Prompt = field(
@@ -54,16 +51,28 @@ class KeyphraseExtractor(Extractor):
         logger.debug("topics: %s", keyphrases)
         return keyphrases.get("keyphrases", [])
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
         """
         Adapt the extractor to a different language.
         """
-        self.extractor_prompt = self.extractor_prompt.adapt(
-            language, self.llm, cache_dir
-        )
+        try:
+            logger.info(f"Adapting keyphrase extraction to {language}")
+            self.extractor_prompt = self.extractor_prompt.adapt(
+                language, self.llm, cache_dir
+            )
+            logger.info(f"Successfully adapted keyphrase extraction to {language}")
+        except Exception as e:
+            logger.error(f"Error during keyphrase extraction adaptation: {str(e)}")
+            raise
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         """
         Save the extractor prompts to a path.
         """
-        self.extractor_prompt.save(cache_dir)
+        try:
+            self.extractor_prompt.save(cache_dir)
+            logger.info(f"Successfully saved extractor prompt to {cache_dir}")
+        except Exception as e:
+            logger.error(f"Error saving extractor prompt: {str(e)}")
+            raise
