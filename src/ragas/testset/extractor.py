@@ -3,10 +3,11 @@ import logging
 import typing as t
 import os
 import shutil
-import fcntl  # For Unix-based file locking
+import tempfile
+from filelock import FileLock # type: ignore
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential # type: ignore
 
 from ragas.llms.json_load import json_loader
 from ragas.testset.prompts import keyphrase_extraction_prompt
@@ -24,19 +25,19 @@ class Extractor(ABC):
 
     @abstractmethod
     async def extract(self, node: Node, is_async: bool = True) -> t.Any:
-        ...
+        pass
 
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
         """
         Adapt the extractor to a different language.
         """
-        raise NotImplementedError("adapt() is not implemented for {} Extractor")
+        raise NotImplementedError(f"adapt() is not implemented for {self.__class__.__name__} Extractor")
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         """
         Save the extractor prompts to a path.
         """
-        raise NotImplementedError("adapt() is not implemented for {} Extractor")
+        raise NotImplementedError(f"save() is not implemented for {self.__class__.__name__} Extractor")
 
 @dataclass
 class KeyphraseExtractor(Extractor):
@@ -53,7 +54,7 @@ class KeyphraseExtractor(Extractor):
             # Check if the LLM returned valid results
             if not results or not results.generations or not results.generations[0]:
                 logger.error("LLM returned an empty or invalid response")
-                raise ValueError("LLM returned an empty or invalid response")
+                return []
 
             generated_text = results.generations[0][0].text.strip()
             logger.info(f"LLM generated output: {generated_text}")
@@ -61,7 +62,7 @@ class KeyphraseExtractor(Extractor):
             # Ensure non-empty response
             if not generated_text:
                 logger.error("LLM returned an empty response")
-                raise ValueError("LLM returned an empty response")
+                return []
 
             # Try to load the JSON safely
             keyphrases = await json_loader.safe_load(generated_text, llm=self.llm, is_async=is_async)
@@ -69,22 +70,24 @@ class KeyphraseExtractor(Extractor):
             # Ensure the returned keyphrases are a valid dict
             if not isinstance(keyphrases, dict):
                 logger.error(f"Invalid keyphrases format received: {keyphrases}")
-                raise ValueError("LLM returned invalid keyphrases format")
+                return []
 
             logger.debug(f"Extracted keyphrases: {keyphrases}")
             return keyphrases.get("keyphrases", [])
 
         except Exception as e:
             logger.error(f"Error in extracting keyphrases: {str(e)}")
-            raise
+            return []
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
+        if cache_dir is None:
+            cache_dir = tempfile.gettempdir()
+
         cache_lock_file = os.path.join(cache_dir, "cache.lock")
 
-        # Ensure the cache is handled atomically with a lock
-        with open(cache_lock_file, 'w') as lock_file:
-            fcntl.flock(lock_file, fcntl.LOCK_EX)  # Acquire exclusive lock
+        # Use FileLock for platform-independent file locking
+        with FileLock(cache_lock_file):
             try:
                 logger.info(f"Adapting keyphrase extraction to {language}")
 
@@ -95,8 +98,6 @@ class KeyphraseExtractor(Extractor):
             except Exception as e:
                 logger.error(f"Error during adaptation: {str(e)}")
                 raise
-            finally:
-                fcntl.flock(lock_file, fcntl.LOCK_UN)  # Release lock
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         """
