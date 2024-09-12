@@ -326,33 +326,43 @@ class TestsetGenerator:
 
         return test_dataset
 
-    def adapt(
-        self,
-        language: str,
-        evolutions: t.List[Evolution],
-        cache_dir: t.Optional[str] = None,
-    ) -> None:
-        assert isinstance(
-            self.docstore, InMemoryDocumentStore
-        ), "Must be an instance of in-memory docstore"
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=(retry_if_exception_type(json.JSONDecodeError) | retry_if_exception_type(ValueError))
+    )
+    def adapt(self, language: str, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None) -> None:
+        assert isinstance(self.docstore, InMemoryDocumentStore), "Must be an instance of in-memory docstore"
         assert self.docstore.extractor is not None, "Extractor is not set"
     
-        print(f"Adapting to language: {language}")
-        print(f"Cache directory: {cache_dir}")
+        logger.info(f"Adapting to language: {language}")
+        logger.info(f"Cache directory: {cache_dir}")
     
-        self.docstore.extractor.adapt(language, cache_dir=cache_dir)
-        self.docstore.extractor.save(cache_dir)  # Save extractor changes
-        print(f"Extractor adapted and saved for {language}")
+        # Force recreation of the cache directory
+        if cache_dir:
+            language_cache_dir = os.path.join(cache_dir, language)
+            if os.path.exists(language_cache_dir):
+                shutil.rmtree(language_cache_dir)
+            os.makedirs(language_cache_dir, exist_ok=True)
+            logger.info(f"Recreated cache directory for language: {language}")
     
-        for evolution in evolutions:
-            print(f"Adapting evolution: {evolution.__class__.__name__}")
-            self.init_evolution(evolution)
-            evolution.init()
-            evolution.adapt(language, cache_dir=cache_dir)
-            evolution.save(cache_dir=cache_dir)  # Save evolution changes
-            print(f"Evolution {evolution.__class__.__name__} adapted and saved")
+        try:
+            self.docstore.extractor.adapt(language, cache_dir=cache_dir)
+            self.docstore.extractor.save(cache_dir)  # Save extractor changes
+            logger.info(f"Extractor adapted and saved for {language}")
     
-        print("Adaptation complete")
+            for evolution in evolutions:
+                logger.info(f"Adapting evolution: {evolution.__class__.__name__}")
+                self.init_evolution(evolution)
+                evolution.init()
+                evolution.adapt(language, cache_dir=cache_dir)
+                evolution.save(cache_dir=cache_dir)  # Save evolution changes
+                logger.info(f"Evolution {evolution.__class__.__name__} adapted and saved")
+    
+            logger.info("Adaptation complete")
+        except Exception as e:
+            logger.error(f"Error during adaptation: {str(e)}")
+            raise
 
     def save(
         self, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None
