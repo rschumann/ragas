@@ -18,6 +18,7 @@ from ragas.metrics.base import (
 if t.TYPE_CHECKING:
     from langchain_core.callbacks import Callbacks
 
+    from ragas.dataset_schema import SingleTurnSample
     from ragas.metrics._faithfulness import HasSegmentMethod
 
 
@@ -211,7 +212,7 @@ class FaithfulnessExperimental(MetricWithLLM, SingleTurnMetric):
             sentence for sentence in sentences if sentence.strip().endswith(".")
         ]
         sentence_components = await self.long_form_answer_prompt.generate(
-            FaithfulnessStatements(
+            data=FaithfulnessStatements(
                 question=question,
                 answer=answer,
                 sentences={i: sentence for i, sentence in enumerate(sentences)},
@@ -226,7 +227,7 @@ class FaithfulnessExperimental(MetricWithLLM, SingleTurnMetric):
             for statement in component.simpler_statements
         ]
         verdicts = await self.nli_statement_prompt.generate(
-            NLIStatementInput(
+            data=NLIStatementInput(
                 context="\n".join(contexts),
                 statements=statements,
             ),
@@ -243,3 +244,9 @@ class FaithfulnessExperimental(MetricWithLLM, SingleTurnMetric):
         else:
             score = np.nan
         return score
+
+    async def _single_turn_ascore(
+        self: t.Self, sample: SingleTurnSample, callbacks: Callbacks
+    ) -> float:
+        row = sample.dict()
+        return await self._ascore(row, callbacks)

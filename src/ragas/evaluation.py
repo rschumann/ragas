@@ -34,7 +34,12 @@ from ragas.metrics.base import (
 )
 from ragas.metrics.critique import AspectCritique
 from ragas.run_config import RunConfig
-from ragas.utils import get_feature_language, safe_nanmean
+from ragas.utils import (
+    convert_v1_to_v2_dataset,
+    convert_v2_to_v1_dataset,
+    get_feature_language,
+    safe_nanmean,
+)
 from ragas.validation import (
     remap_column_names,
     validate_required_columns,
@@ -61,6 +66,7 @@ def evaluate(
     token_usage_parser: t.Optional[TokenUsageParser] = None,
     raise_exceptions: bool = False,
     column_map: t.Optional[t.Dict[str, str]] = None,
+    show_progress: bool = True,
 ) -> Result:
     """
     Run the evaluation on the dataset with different metrics
@@ -104,6 +110,8 @@ def evaluate(
         the dataset are different from the default ones then you can provide the
         mapping as a dictionary here. Example: If the dataset column name is contexts_v1,
         column_map can be given as {"contexts":"contexts_v1"}
+    show_progress: bool, optional
+        Whether to show the progress bar during evaluation. If set to False, the progress bar will be disabled. Default is True.
 
     Returns
     -------
@@ -159,9 +167,12 @@ def evaluate(
 
         metrics = [answer_relevancy, context_precision, faithfulness, context_recall]
 
+    v1_input = False
     if isinstance(dataset, Dataset):
         # remap column names from the dataset
+        v1_input = True
         dataset = remap_column_names(dataset, column_map)
+        dataset = convert_v1_to_v2_dataset(dataset)
         # validation
         dataset = EvaluationDataset.from_list(dataset.to_list())
 
@@ -215,6 +226,7 @@ def evaluate(
         keep_progress_bar=True,
         raise_exceptions=raise_exceptions,
         run_config=run_config,
+        show_progress=show_progress,
     )
 
     # Ragas Callbacks
@@ -304,10 +316,15 @@ def evaluate(
     else:
         # evalution run was successful
         # now lets process the results
+        # convert to v.1 dataset
+        dataset = dataset.to_hf_dataset()
+        if v1_input:
+            dataset = convert_v2_to_v1_dataset(dataset)
+
         cost_cb = ragas_callbacks["cost_cb"] if "cost_cb" in ragas_callbacks else None
         result = Result(
             scores=Dataset.from_list(scores),
-            dataset=dataset.to_hf_dataset(),
+            dataset=dataset,
             binary_columns=binary_metrics,
             cost_cb=t.cast(
                 t.Union["CostCallbackHandler", None],

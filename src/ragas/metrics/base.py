@@ -17,6 +17,7 @@ from enum import Enum
 
 from ragas.callbacks import new_group
 from ragas.dataset_schema import MultiTurnSample, SingleTurnSample
+from ragas.executor import is_event_loop_running
 from ragas.run_config import RunConfig
 from ragas.utils import deprecated
 
@@ -26,8 +27,12 @@ if t.TYPE_CHECKING:
     from ragas.embeddings import BaseRagasEmbeddings
     from ragas.llms import BaseRagasLLM
 
+import inspect
+
 from pysbd import Segmenter
 from pysbd.languages import LANGUAGE_CODES
+
+from ragas.experimental.llms.prompt import PydanticPrompt as Prompt
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +60,7 @@ class Metric(ABC):
 
     @property
     @abstractmethod
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
     @property
     def required_columns(self) -> t.Dict[str, t.Set[str]]:
@@ -99,6 +103,15 @@ class Metric(ABC):
         callbacks = callbacks or []
         rm, group_cm = new_group(self.name, inputs=row, callbacks=callbacks)
         try:
+            if is_event_loop_running():
+                try:
+                    import nest_asyncio
+
+                    nest_asyncio.apply()
+                except ImportError:
+                    raise ImportError(
+                        "It seems like your running this in a jupyter-like environment. Please install nest_asyncio with `pip install nest_asyncio` to make it work."
+                    )
             loop = asyncio.get_event_loop()
             score = loop.run_until_complete(self._ascore(row=row, callbacks=group_cm))
         except Exception as e:
@@ -134,8 +147,7 @@ class Metric(ABC):
         return score
 
     @abstractmethod
-    async def _ascore(self, row: t.Dict, callbacks: Callbacks) -> float:
-        ...
+    async def _ascore(self, row: t.Dict, callbacks: Callbacks) -> float: ...
 
 
 @dataclass
@@ -153,6 +165,26 @@ class MetricWithLLM(Metric):
                 f"Metric '{self.name}' has no valid LLM provided (self.llm is None). Please initantiate a the metric with an LLM to run."  # noqa
             )
         self.llm.set_run_config(run_config)
+
+    def get_prompts(self) -> t.Dict[str, Prompt]:
+        prompts = {}
+        for name, value in inspect.getmembers(self):
+            if isinstance(value, Prompt):
+                prompts.update({name: value})
+        return prompts
+
+    def set_prompts(self, **prompts):
+        available_prompts = self.get_prompts()
+        for key, value in prompts.items():
+            if key not in available_prompts:
+                raise ValueError(
+                    f"Prompt with name '{key}' does not exist in the metric {self.name}. Use get_prompts() to see available prompts."
+                )
+            if not isinstance(value, Prompt):
+                raise ValueError(
+                    f"Prompt with name '{key}' must be an instance of 'Prompt'"
+                )
+            setattr(self, key, value)
 
 
 @dataclass
@@ -222,8 +254,7 @@ class SingleTurnMetric(Metric):
         self,
         sample: SingleTurnSample,
         callbacks: Callbacks,
-    ) -> float:
-        ...
+    ) -> float: ...
 
 
 class MultiTurnMetric(Metric):
@@ -275,8 +306,7 @@ class MultiTurnMetric(Metric):
         self,
         sample: MultiTurnSample,
         callbacks: Callbacks,
-    ) -> float:
-        ...
+    ) -> float: ...
 
 
 class Ensember:
