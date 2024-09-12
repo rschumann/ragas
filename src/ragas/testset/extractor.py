@@ -46,9 +46,17 @@ class KeyphraseExtractor(Extractor):
     async def extract(self, node: Node, is_async: bool = True) -> t.List[str]:
         prompt = self.extractor_prompt.format(text=node.page_content)
         results = await self.llm.generate(prompt=prompt, is_async=is_async)
-        keyphrases = await json_loader.safe_load(
-            results.generations[0][0].text.strip(), llm=self.llm, is_async=is_async
-        )
+        generated_text = results.generations[0][0].text.strip()
+
+        # Add logging to capture the raw response
+        logger.info(f"LLM generated output: {generated_text}")
+
+        # Ensure non-empty and valid JSON
+        if not generated_text:
+            logger.error("Empty response from LLM")
+            raise ValueError("LLM returned an empty response")
+
+        keyphrases = await json_loader.safe_load(generated_text, llm=self.llm, is_async=is_async)
         keyphrases = keyphrases if isinstance(keyphrases, dict) else {}
         logger.debug("topics: %s", keyphrases)
         return keyphrases.get("keyphrases", [])
@@ -67,9 +75,9 @@ class KeyphraseExtractor(Extractor):
             # Optional: Clear the cache directory for this language
             if cache_dir:
                 language_cache_dir = os.path.join(cache_dir, language)
-                if os.path.exists(language_cache_dir):
-                    logger.info(f"Clearing cache for {language}")
-                    shutil.rmtree(language_cache_dir)
+                # if os.path.exists(language_cache_dir):
+                #     logger.info(f"Clearing cache for {language}")
+                #     shutil.rmtree(language_cache_dir)
                 os.makedirs(language_cache_dir, exist_ok=True)
     
             # Now adapt the prompt with the new language and LLM
