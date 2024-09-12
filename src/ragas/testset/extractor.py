@@ -1,6 +1,8 @@
 from __future__ import annotations
 import logging
 import typing as t
+import os
+import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -58,9 +60,22 @@ class KeyphraseExtractor(Extractor):
         """
         try:
             logger.info(f"Adapting keyphrase extraction to {language}")
-            self.extractor_prompt = self.extractor_prompt.adapt(
-                language, self.llm, cache_dir
-            )
+    
+            # Ensure prompt is reset before adaptation
+            self.extractor_prompt = keyphrase_extraction_prompt  # Reset or reinitialize
+            
+            # Optional: Clear the cache directory for this language
+            if cache_dir:
+                language_cache_dir = os.path.join(cache_dir, language)
+                if os.path.exists(language_cache_dir):
+                    logger.info(f"Clearing cache for {language}")
+                    shutil.rmtree(language_cache_dir)
+                os.makedirs(language_cache_dir, exist_ok=True)
+    
+            # Now adapt the prompt with the new language and LLM
+            self.extractor_prompt = self.extractor_prompt.adapt(language, self.llm, cache_dir)
+            self.extractor_prompt.save(cache_dir)
+            
             logger.info(f"Successfully adapted keyphrase extraction to {language}")
         except Exception as e:
             logger.error(f"Error during keyphrase extraction adaptation: {str(e)}")
