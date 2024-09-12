@@ -33,6 +33,8 @@ from ragas.testset.evolutions import (
 from ragas.testset.extractor import KeyphraseExtractor
 from ragas.testset.filters import EvolutionFilter, NodeFilter, QuestionFilter
 from ragas.utils import check_if_sum_is_close, deprecated, get_feature_language, is_nan
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import json
 
 if t.TYPE_CHECKING:
     from langchain_core.documents import Document as LCDocument
