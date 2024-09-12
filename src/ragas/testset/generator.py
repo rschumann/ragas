@@ -335,20 +335,23 @@ class TestsetGenerator:
         assert isinstance(self.docstore, InMemoryDocumentStore), "Must be an instance of in-memory docstore"
         assert self.docstore.extractor is not None, "Extractor is not set"
     
-        logger.info(f"Adapting to language: {language}")
+        logger.info(f"Adapting TestsetGenerator to language: {language}")
         logger.info(f"Cache directory: {cache_dir}")
     
         # Force recreation of the cache directory
         if cache_dir:
             language_cache_dir = os.path.join(cache_dir, language)
             if os.path.exists(language_cache_dir):
+                logger.info(f"Removing existing cache directory for language: {language}")
                 shutil.rmtree(language_cache_dir)
+            logger.info(f"Creating new cache directory for language: {language}")
             os.makedirs(language_cache_dir, exist_ok=True)
-            logger.info(f"Recreated cache directory for language: {language}")
+            logger.info(f"Cache directory recreated for language: {language}")
     
         try:
+            logger.info("Adapting docstore extractor")
             self.docstore.extractor.adapt(language, cache_dir=cache_dir)
-            self.docstore.extractor.save(cache_dir)  # Save extractor changes
+            self.docstore.extractor.save(cache_dir)
             logger.info(f"Extractor adapted and saved for {language}")
     
             for evolution in evolutions:
@@ -356,12 +359,18 @@ class TestsetGenerator:
                 self.init_evolution(evolution)
                 evolution.init()
                 evolution.adapt(language, cache_dir=cache_dir)
-                evolution.save(cache_dir=cache_dir)  # Save evolution changes
+                evolution.save(cache_dir=cache_dir)
                 logger.info(f"Evolution {evolution.__class__.__name__} adapted and saved")
     
-            logger.info("Adaptation complete")
+            logger.info(f"TestsetGenerator adaptation complete for language: {language}")
+        except json.JSONDecodeError as jde:
+            logger.error(f"JSON decode error during adaptation: {str(jde)}")
+            raise
+        except ValueError as ve:
+            logger.error(f"Value error during adaptation: {str(ve)}")
+            raise
         except Exception as e:
-            logger.error(f"Error during adaptation: {str(e)}")
+            logger.error(f"Unexpected error during adaptation: {str(e)}")
             raise
 
     def save(
