@@ -25,6 +25,8 @@ from ragas.testset.prompts import (
     reasoning_question_prompt,
     seed_question_prompt,
 )
+import json
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
@@ -247,27 +249,40 @@ class Evolution:
             evolution_type=evolution_type,
             metadata=[n.metadata for n in relevant_context.nodes],
         )
-
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=(retry_if_exception_type(json.JSONDecodeError) | retry_if_exception_type(ValueError))
+    )
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
-        """
-        Adapt the filter to a different language.
-        """
-        assert self.node_filter is not None, "node filter cannot be None"
-        assert self.question_filter is not None, "question_filter cannot be None"
+        try:
+            logger.info(f"Starting adaptation for {self.__class__.__name__} to language: {language}")
+            assert self.node_filter is not None, "node filter cannot be None"
+            assert self.question_filter is not None, "question_filter cannot be None"
 
-        self.question_answer_prompt = self.question_answer_prompt.adapt(
-            language, self.generator_llm, cache_dir
-        )
-        self.find_relevant_context_prompt = self.find_relevant_context_prompt.adapt(
-            language, self.generator_llm, cache_dir
-        )
-        self.rewrite_invalid_question_prompt = (
-            self.rewrite_invalid_question_prompt.adapt(
+            logger.info("Adapting question_answer_prompt")
+            self.question_answer_prompt = self.question_answer_prompt.adapt(
                 language, self.generator_llm, cache_dir
             )
-        )
-        self.node_filter.adapt(language, cache_dir)
-        self.question_filter.adapt(language, cache_dir)
+            logger.info("Adapting find_relevant_context_prompt")
+            self.find_relevant_context_prompt = self.find_relevant_context_prompt.adapt(
+                language, self.generator_llm, cache_dir
+            )
+            logger.info("Adapting rewrite_invalid_question_prompt")
+            self.rewrite_invalid_question_prompt = (
+                self.rewrite_invalid_question_prompt.adapt(
+                    language, self.generator_llm, cache_dir
+                )
+            )
+            logger.info("Adapting node_filter")
+            self.node_filter.adapt(language, cache_dir)
+            logger.info("Adapting question_filter")
+            self.question_filter.adapt(language, cache_dir)
+            
+            logger.info(f"Successfully adapted {self.__class__.__name__} to {language}")
+        except Exception as e:
+            logger.error(f"Error during {self.__class__.__name__} adaptation: {str(e)}")
+            raise
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         """
@@ -333,10 +348,17 @@ class SimpleEvolution(Evolution):
         return hash(self.__class__.__name__)
 
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
-        super().adapt(language, cache_dir)
-        self.seed_question_prompt = self.seed_question_prompt.adapt(
-            language, self.generator_llm, cache_dir
-        )
+        try:
+            logger.info(f"Starting adaptation for SimpleEvolution to language: {language}")
+            super().adapt(language, cache_dir)
+            logger.info("Adapting seed_question_prompt")
+            self.seed_question_prompt = self.seed_question_prompt.adapt(
+                language, self.generator_llm, cache_dir
+            )
+            logger.info(f"Successfully adapted SimpleEvolution to {language}")
+        except Exception as e:
+            logger.error(f"Error during SimpleEvolution adaptation: {str(e)}")
+            raise
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         super().save(cache_dir)
@@ -432,15 +454,24 @@ class ComplexEvolution(Evolution):
         return compressed_question, current_nodes
 
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
-        assert self.evolution_filter is not None, "evolution filter cannot be None"
-        assert self.se is not None, "simple evolution cannot be None"
+        try:
+            logger.info(f"Starting adaptation for ComplexEvolution to language: {language}")
+            assert self.evolution_filter is not None, "evolution filter cannot be None"
+            assert self.se is not None, "simple evolution cannot be None"
 
-        super().adapt(language, cache_dir)
-        self.se.adapt(language, cache_dir)
-        self.compress_question_prompt = self.compress_question_prompt.adapt(
-            language, self.generator_llm, cache_dir
-        )
-        self.evolution_filter.adapt(language, cache_dir)
+            super().adapt(language, cache_dir)
+            logger.info("Adapting SimpleEvolution")
+            self.se.adapt(language, cache_dir)
+            logger.info("Adapting compress_question_prompt")
+            self.compress_question_prompt = self.compress_question_prompt.adapt(
+                language, self.generator_llm, cache_dir
+            )
+            logger.info("Adapting evolution_filter")
+            self.evolution_filter.adapt(language, cache_dir)
+            logger.info(f"Successfully adapted ComplexEvolution to {language}")
+        except Exception as e:
+            logger.error(f"Error during ComplexEvolution adaptation: {str(e)}")
+            raise
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         assert self.evolution_filter is not None, "evolution filter cannot be None"
