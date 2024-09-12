@@ -330,6 +330,31 @@ class TestsetGenerator:
 
         return test_dataset
 
+    # Define cache validity check here
+    def is_cache_valid(self, cache_dir: str, language: str) -> bool:
+        """Check if the cache is valid by ensuring necessary files exist."""
+        language_cache_dir = os.path.join(cache_dir, language)
+        required_files = [
+            'answer_formulate.json',
+            'compress_question.json',
+            'conditional_question.json',
+            'evolution_elimination.json',
+            'filter_question.json',
+            'find_relevant_context.json',
+            'keyphrase_extraction.json',
+            'multi_context_question.json',
+            'reasoning_question.json',
+            'rewrite_question.json',
+            'score_context.json',
+            'seed_question.json'
+        ]
+        for file in required_files:
+            if not os.path.exists(os.path.join(language_cache_dir, file)):
+                logger.info(f"Cache is incomplete, missing {file}")
+                return False
+        return True
+
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=4, max=10),
@@ -338,34 +363,30 @@ class TestsetGenerator:
     def adapt(self, language: str, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None) -> None:
         assert isinstance(self.docstore, InMemoryDocumentStore), "Must be an instance of in-memory docstore"
         assert self.docstore.extractor is not None, "Extractor is not set"
-    
+
         logger.info(f"Adapting TestsetGenerator to language: {language}")
         logger.info(f"Cache directory: {cache_dir}")
-    
-        # Force recreation of the cache directory
-        if cache_dir:
-            language_cache_dir = os.path.join(cache_dir, language)
-            if os.path.exists(language_cache_dir):
-                logger.info(f"Removing existing cache directory for language: {language}")
-                shutil.rmtree(language_cache_dir)
-            logger.info(f"Creating new cache directory for language: {language}")
-            os.makedirs(language_cache_dir, exist_ok=True)
-            logger.info(f"Cache directory recreated for language: {language}")
-    
+
+        # Check if cache already exists and is valid
+        language_cache_dir = os.path.join(cache_dir, language) if cache_dir else None
+        if language_cache_dir and os.path.exists(language_cache_dir):
+            logger.info(f"Cache exists for {language}, skipping adaptation.")
+            return  # Skip adaptation if cache exists
+
         try:
             logger.info("Adapting docstore extractor")
-            self.docstore.extractor.adapt(language, cache_dir=cache_dir)
-            self.docstore.extractor.save(cache_dir)
+            self.docstore.extractor.adapt(language=language, cache_dir=cache_dir)
+            self.docstore.extractor.save(cache_dir=cache_dir)
             logger.info(f"Extractor adapted and saved for {language}")
-    
+
             for evolution in evolutions:
                 logger.info(f"Adapting evolution: {evolution.__class__.__name__}")
                 self.init_evolution(evolution)
                 evolution.init()
-                evolution.adapt(language, cache_dir=cache_dir)
+                evolution.adapt(language=language, cache_dir=cache_dir)
                 evolution.save(cache_dir=cache_dir)
                 logger.info(f"Evolution {evolution.__class__.__name__} adapted and saved")
-    
+
             logger.info(f"TestsetGenerator adaptation complete for language: {language}")
         except json.JSONDecodeError as jde:
             logger.error(f"JSON decode error during adaptation: {str(jde)}")
@@ -376,6 +397,7 @@ class TestsetGenerator:
         except Exception as e:
             logger.error(f"Unexpected error during adaptation: {str(e)}")
             raise
+
 
     def save(
         self, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None

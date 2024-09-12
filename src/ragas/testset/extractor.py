@@ -3,6 +3,7 @@ import logging
 import typing as t
 import os
 import shutil
+import fcntl  # For Unix-based file locking
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -46,9 +47,15 @@ class KeyphraseExtractor(Extractor):
     async def extract(self, node: Node, is_async: bool = True) -> t.List[str]:
         try:
             prompt = self.extractor_prompt.format(text=node.page_content)
+            logger.info(f"Generated prompt for LLM: {prompt}")
             results = await self.llm.generate(prompt=prompt, is_async=is_async)
-            generated_text = results.generations[0][0].text.strip()
 
+            # Check if the LLM returned valid results
+            if not results or not results.generations or not results.generations[0]:
+                logger.error("LLM returned an empty or invalid response")
+                raise ValueError("LLM returned an empty or invalid response")
+
+            generated_text = results.generations[0][0].text.strip()
             logger.info(f"LLM generated output: {generated_text}")
 
             # Ensure non-empty response
@@ -58,7 +65,7 @@ class KeyphraseExtractor(Extractor):
 
             # Try to load the JSON safely
             keyphrases = await json_loader.safe_load(generated_text, llm=self.llm, is_async=is_async)
-            
+
             # Ensure the returned keyphrases are a valid dict
             if not isinstance(keyphrases, dict):
                 logger.error(f"Invalid keyphrases format received: {keyphrases}")
@@ -73,27 +80,23 @@ class KeyphraseExtractor(Extractor):
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
-        try:
-            logger.info(f"Adapting keyphrase extraction to {language}")
+        cache_lock_file = os.path.join(cache_dir, "cache.lock")
 
-            # Reset the extractor prompt
-            self.extractor_prompt = keyphrase_extraction_prompt
-            
-            # Ensure cache clearing
-            if cache_dir:
-                language_cache_dir = os.path.join(cache_dir, language)
-                if os.path.exists(language_cache_dir):
-                    logger.info(f"Clearing cache for {language}")
-                    shutil.rmtree(language_cache_dir)
-                os.makedirs(language_cache_dir, exist_ok=True)
+        # Ensure the cache is handled atomically with a lock
+        with open(cache_lock_file, 'w') as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)  # Acquire exclusive lock
+            try:
+                logger.info(f"Adapting keyphrase extraction to {language}")
 
-            # Adapt the prompt
-            self.extractor_prompt = self.extractor_prompt.adapt(language, self.llm, cache_dir)
-            self.extractor_prompt.save(cache_dir)
-            logger.info(f"Successfully adapted keyphrase extraction to {language}")
-        except Exception as e:
-            logger.error(f"Error during keyphrase extraction adaptation: {str(e)}")
-            raise
+                self.extractor_prompt = keyphrase_extraction_prompt.adapt(language, self.llm, cache_dir)
+                self.extractor_prompt.save(cache_dir)
+
+                logger.info(f"Successfully adapted keyphrase extraction to {language}")
+            except Exception as e:
+                logger.error(f"Error during adaptation: {str(e)}")
+                raise
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)  # Release lock
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         """
