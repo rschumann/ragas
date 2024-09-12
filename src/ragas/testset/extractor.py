@@ -44,46 +44,52 @@ class KeyphraseExtractor(Extractor):
     )
 
     async def extract(self, node: Node, is_async: bool = True) -> t.List[str]:
-        prompt = self.extractor_prompt.format(text=node.page_content)
-        results = await self.llm.generate(prompt=prompt, is_async=is_async)
-        generated_text = results.generations[0][0].text.strip()
+        try:
+            prompt = self.extractor_prompt.format(text=node.page_content)
+            results = await self.llm.generate(prompt=prompt, is_async=is_async)
+            generated_text = results.generations[0][0].text.strip()
 
-        # Add logging to capture the raw response
-        logger.info(f"LLM generated output: {generated_text}")
+            logger.info(f"LLM generated output: {generated_text}")
 
-        # Ensure non-empty and valid JSON
-        if not generated_text:
-            logger.error("Empty response from LLM")
-            raise ValueError("LLM returned an empty response")
+            # Ensure non-empty response
+            if not generated_text:
+                logger.error("LLM returned an empty response")
+                raise ValueError("LLM returned an empty response")
 
-        keyphrases = await json_loader.safe_load(generated_text, llm=self.llm, is_async=is_async)
-        keyphrases = keyphrases if isinstance(keyphrases, dict) else {}
-        logger.debug("topics: %s", keyphrases)
-        return keyphrases.get("keyphrases", [])
+            # Try to load the JSON safely
+            keyphrases = await json_loader.safe_load(generated_text, llm=self.llm, is_async=is_async)
+            
+            # Ensure the returned keyphrases are a valid dict
+            if not isinstance(keyphrases, dict):
+                logger.error(f"Invalid keyphrases format received: {keyphrases}")
+                raise ValueError("LLM returned invalid keyphrases format")
+
+            logger.debug(f"Extracted keyphrases: {keyphrases}")
+            return keyphrases.get("keyphrases", [])
+
+        except Exception as e:
+            logger.error(f"Error in extracting keyphrases: {str(e)}")
+            raise
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
-        """
-        Adapt the extractor to a different language.
-        """
         try:
             logger.info(f"Adapting keyphrase extraction to {language}")
-    
-            # Ensure prompt is reset before adaptation
-            self.extractor_prompt = keyphrase_extraction_prompt  # Reset or reinitialize
+
+            # Reset the extractor prompt
+            self.extractor_prompt = keyphrase_extraction_prompt
             
-            # Optional: Clear the cache directory for this language
+            # Ensure cache clearing
             if cache_dir:
                 language_cache_dir = os.path.join(cache_dir, language)
-                # if os.path.exists(language_cache_dir):
-                #     logger.info(f"Clearing cache for {language}")
-                #     shutil.rmtree(language_cache_dir)
+                if os.path.exists(language_cache_dir):
+                    logger.info(f"Clearing cache for {language}")
+                    shutil.rmtree(language_cache_dir)
                 os.makedirs(language_cache_dir, exist_ok=True)
-    
-            # Now adapt the prompt with the new language and LLM
+
+            # Adapt the prompt
             self.extractor_prompt = self.extractor_prompt.adapt(language, self.llm, cache_dir)
             self.extractor_prompt.save(cache_dir)
-            
             logger.info(f"Successfully adapted keyphrase extraction to {language}")
         except Exception as e:
             logger.error(f"Error during keyphrase extraction adaptation: {str(e)}")
