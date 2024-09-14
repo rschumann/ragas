@@ -222,6 +222,14 @@ class Prompt(BaseModel):
                 ):
                     output_keys.append([get_all_keys(item) for item in output])
 
+        # Translate the instruction
+        instruction_prompt = str_translation.format(
+            translate_to=language, input=self.instruction
+        )
+        translated_instruction = llm.generate_text(instruction_prompt).generations[0][0].text
+
+        self.instruction = translated_instruction
+
         # NOTE: this is a slow loop, consider Executor to fasten this
         results = []
         for p in prompts:
