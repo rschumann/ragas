@@ -48,7 +48,6 @@ class KeyphraseExtractor(Extractor):
     async def extract(self, node: Node, is_async: bool = True) -> t.List[str]:
         try:
             prompt = self.extractor_prompt.format(text=node.page_content)
-            logger.info(f"Generated prompt for LLM: {prompt}")
             results = await self.llm.generate(prompt=prompt, is_async=is_async)
 
             # Check if the LLM returned valid results
@@ -57,7 +56,6 @@ class KeyphraseExtractor(Extractor):
                 return []
 
             generated_text = results.generations[0][0].text.strip()
-            logger.info(f"LLM generated output: {generated_text}")
 
             # Ensure non-empty response
             if not generated_text:
@@ -72,7 +70,6 @@ class KeyphraseExtractor(Extractor):
                 logger.error(f"Invalid keyphrases format received: {keyphrases}")
                 return []
 
-            logger.debug(f"Extracted keyphrases: {keyphrases}")
             return keyphrases.get("keyphrases", [])
 
         except Exception as e:

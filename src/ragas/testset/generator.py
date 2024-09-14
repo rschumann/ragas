@@ -380,14 +380,10 @@ class TestsetGenerator:
             logger.info(f"Extractor adapted and saved for {language}")
 
             for evolution in evolutions:
-                logger.info(f"Adapting evolution: {evolution.__class__.__name__}")
                 self.init_evolution(evolution)
                 evolution.init()
                 evolution.adapt(language=language, cache_dir=cache_dir)
                 evolution.save(cache_dir=cache_dir)
-                logger.info(f"Evolution {evolution.__class__.__name__} adapted and saved")
-
-            logger.info(f"TestsetGenerator adaptation complete for language: {language}")
         except json.JSONDecodeError as jde:
             logger.error(f"JSON decode error during adaptation: {str(jde)}")
             raise
