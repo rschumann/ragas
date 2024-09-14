@@ -47,7 +47,7 @@ class Prompt(BaseModel):
     """
 
     name: str = ""
-    instruction: str
+    instruction: str = ""
     output_format_instruction: str = ""
     examples: t.List[Example] = []
     input_keys: t.List[str] = [""]

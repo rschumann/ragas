@@ -72,3 +72,15 @@ class RagasoutputParser(PydanticOutputParser):
                 logger.warning("Failed to parse output. Returning None.")
                 return None
         return output
+
+def serialize_prompt(prompt: Prompt) -> str:
+    return json.dumps({
+        "name": prompt.name,
+        "instruction": prompt.instruction.replace('\n', '\\n'),  # Escape newlines
+        "output_format_instruction": prompt.output_format_instruction,
+        "examples": prompt.examples,
+        "input_keys": prompt.input_keys,
+        "output_key": prompt.output_key,
+        "output_type": prompt.output_type,
+        "language": prompt.language,
+    }, ensure_ascii=False, indent=2)

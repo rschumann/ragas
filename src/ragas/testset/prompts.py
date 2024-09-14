@@ -1,4 +1,6 @@
+import os
 from langchain_core.pydantic_v1 import BaseModel
+from ragas.llms.output_parser import serialize_prompt
 
 from ragas.llms.output_parser import RagasoutputParser, get_json_format_instructions
 from ragas.llms.prompt import Prompt
@@ -7,6 +9,11 @@ from ragas.llms.prompt import Prompt
 class AnswerFormat(BaseModel):
     answer: str
     verdict: int
+
+def save_prompt_to_json(prompt: Prompt, file_path: str):
+    json_content = serialize_prompt(prompt)
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(json_content)
 
 
 question_answer_parser = RagasoutputParser(pydantic_object=AnswerFormat)
@@ -348,6 +355,7 @@ context_scoring_parser = RagasoutputParser(pydantic_object=ContextScoring)
 question_filter_parser = RagasoutputParser(pydantic_object=QuestionFilter)
 evolution_elimination_parser = RagasoutputParser(pydantic_object=EvolutionElimination)
 
+
 context_scoring_prompt = Prompt(
     name="score_context",
     instruction="""Given a context, perform the following task and output the answer in VALID JSON format: Assess the provided context and assign a numerical score of 1 (Low), 2 (Medium), or 3 (High) for each of the following criteria in your JSON response.
@@ -363,10 +371,10 @@ Structure your JSON output to reflect these criteria as keys with their correspo
             "context": "The Pythagorean theorem is a fundamental principle in geometry. It states that in a right-angled triangle, the square of the length of the hypotenuse (the side opposite the right angle) is equal to the sum of the squares of the lengths of the other two sides. This can be written as a^2 + b^2 = c^2 where c represents the length of the hypotenuse, and a and b represent the lengths of the other two sides.",
             "output": ContextScoring.parse_obj(
                 {
-                    "clarity": "3",
-                    "depth": "1",
-                    "structure": "3",
-                    "relevance": "3"
+                    "clarity": 3,
+                    "depth": 1,
+                    "structure": 3,
+                    "relevance": 3
                 }
             ).dict(),
         },
@@ -374,10 +382,10 @@ Structure your JSON output to reflect these criteria as keys with their correspo
             "context": "Albert Einstein (14 March 1879 - 18 April 1955) was a German-born theoretical physicist who is widely held to be one of the greatest and most influential scientists of all time.",
             "output": ContextScoring.parse_obj(
                 {
-                    "clarity": "3",
-                    "depth": "2",
-                    "structure": "3",
-                    "relevance": "3"
+                    "clarity": 3,
+                    "depth": 2,
+                    "structure": 3,
+                    "relevance": 3
                 }
             ).dict(),
         },
@@ -385,10 +393,10 @@ Structure your JSON output to reflect these criteria as keys with their correspo
             "context": "I love chocolate. It's really tasty. Oh, and by the way, the earth orbits the sun, not the other way around. Also, my favorite color is blue.",
             "output": ContextScoring.parse_obj(
                 {
-                    "clarity": "2",
-                    "depth": "1",
-                    "structure": "1",
-                    "relevance": "1"
+                    "clarity": 2,
+                    "depth": 1,
+                    "structure": 1,
+                    "relevance": 1
                 }
             ).dict(),
         },
@@ -398,6 +406,9 @@ Structure your JSON output to reflect these criteria as keys with their correspo
     output_type="json",
     language="english",
 )
+
+
+save_prompt_to_json(context_scoring_prompt, os.path.join('cache', 'context_scoring_prompt.json'))
 
 
 filter_question_prompt = Prompt(
@@ -463,6 +474,7 @@ Provide feedback and a verdict in JSON format, including suggestions for improve
     language="english",
 )
 
+
 evolution_elimination_prompt = Prompt(
     name="evolution_elimination",
     instruction="""Check if the given two questions are equal based on following requirements:
@@ -507,6 +519,7 @@ evolution_elimination_prompt = Prompt(
     output_type="json",
     language="english",
 )
+
 
 testset_prompts = [
     reasoning_question_prompt,
