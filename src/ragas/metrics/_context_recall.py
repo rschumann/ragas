@@ -220,6 +220,9 @@ class LLMContextRecall(MetricWithLLM, SingleTurnMetric):
 class ContextRecall(LLMContextRecall):
     name: str = "context_recall"
 
+    def _get_row_attributes(self, row: t.Dict) -> t.Tuple[str, t.Any, t.List[str]]:
+        return row["user_input"], row["reference"], row["retrieved_contexts"]
+
     @deprecated(since="0.2", removal="0.3", alternative="LLMContextRecall")
     async def _single_turn_ascore(
         self, sample: SingleTurnSample, callbacks: Callbacks
