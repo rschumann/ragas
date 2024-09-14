@@ -270,21 +270,21 @@ class Prompt(BaseModel):
 
         return self
 
-    def save(self, cache_dir: t.Optional[str] = None):
+    def save(self, cache_dir: t.Optional[str] = None) -> None:
         cache_dir = cache_dir if cache_dir else get_cache_dir()
-        cache_dir = os.path.join(cache_dir, self.language)
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-
-        cache_path = os.path.join(cache_dir, f"{self.name}.json")
-        with open(cache_path, "w") as file:
-            json.dump(self.dict(), file, indent=4)
+        language_dir = os.path.join(cache_dir, self.language)
+        os.makedirs(language_dir, exist_ok=True)
+        file_path = os.path.join(language_dir, f"{self.name}.json")
+        with open(file_path, "w", encoding='utf-8') as f:
+            json.dump(self.dict(), f, ensure_ascii=False, indent=2)
 
     @classmethod
-    def _load(cls, language: str, name: str, cache_dir: str) -> Prompt:
-        logger.info("Loading %s from %s", name, cache_dir)
-        path = os.path.join(cache_dir, language, f"{name}.json")
-        return cls(**json.load(open(path)))
+    def _load(cls, language: str, name: str, cache_dir: t.Optional[str] = None) -> Prompt:
+        cache_dir = cache_dir if cache_dir else get_cache_dir()
+        file_path = os.path.join(cache_dir, language, f"{name}.json")
+        with open(file_path, "r", encoding='utf-8') as f:
+            data = json.load(f)
+        return cls.parse_obj(data)
 
 
 str_translation = Prompt(
