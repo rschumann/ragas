@@ -58,7 +58,7 @@ class NodeFilter(Filter):
         output = await context_scoring_parser.aparse(output, prompt, self.llm)
         output = output.dict() if output is not None else {}
         if len(output.values()) == 0:
-            output['score'] = .0
+            output['score'] = 0
         else:
             output["score"] = sum(output.values()) / len(output.values())
         logger.debug("context scoring: %s", output)
