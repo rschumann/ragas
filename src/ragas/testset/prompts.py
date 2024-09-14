@@ -357,26 +357,40 @@ depth: Determine the level of detailed examination and the inclusion of innovati
 structure: Assess how well the content is organized and whether it flows logically. High scores are awarded to contexts that demonstrate coherent organization and logical progression, whereas low scores indicate a lack of structure or clarity in progression.
 relevance: Judge the pertinence of the content to the main topic, awarding high scores to contexts tightly focused on the subject without unnecessary digressions, and low scores to those that are cluttered with irrelevant information.
 Structure your JSON output to reflect these criteria as keys with their corresponding scores as values. Your response must be a valid JSON object. Ensure all keys are lowercase strings, all values are integers between 1 and 3, and use double quotes for keys.
-Context to evaluate: {{context}}
 """,
     output_format_instruction=get_json_format_instructions(ContextScoring),
     examples=[
         {
             "context": "The Pythagorean theorem is a fundamental principle in geometry. It states that in a right-angled triangle, the square of the length of the hypotenuse (the side opposite the right angle) is equal to the sum of the squares of the lengths of the other two sides. This can be written as a^2 + b^2 = c^2 where c represents the length of the hypotenuse, and a and b represent the lengths of the other two sides.",
             "output": ContextScoring.parse_obj(
-                {"clarity": 3, "depth": 1, "structure": 3, "relevance": 3}
+                {
+                    "clarity": "3",
+                    "depth": "1",
+                    "structure": "3",
+                    "relevance": "3"
+                }
             ).dict(),
         },
         {
             "context": "Albert Einstein (14 March 1879 - 18 April 1955) was a German-born theoretical physicist who is widely held to be one of the greatest and most influential scientists of all time.",
             "output": ContextScoring.parse_obj(
-                {"clarity": 3, "depth": 2, "structure": 3, "relevance": 3}
+                {
+                    "clarity": "3",
+                    "depth": "2",
+                    "structure": "3",
+                    "relevance": "3"
+                }
             ).dict(),
         },
         {
             "context": "I love chocolate. It's really tasty. Oh, and by the way, the earth orbits the sun, not the other way around. Also, my favorite color is blue.",
             "output": ContextScoring.parse_obj(
-                {"clarity": 2, "depth": 1, "structure": 1, "relevance": 1}
+                {
+                    "clarity": "2",
+                    "depth": "1",
+                    "structure": "1",
+                    "relevance": "1"
+                }
             ).dict(),
         },
     ],
@@ -421,7 +435,7 @@ Provide feedback and a verdict in JSON format, including suggestions for improve
             "output": QuestionFilter.parse_obj(
                 {
                     "feedback": "The question requests a comparison between KIWI-XXL and XCOMET models and gold standard references in 'Table 1', focusing on evaluation scores, translation model performance, and success rates in surpassing the references. It specifies the models and criteria for comparison, making the intent clear. However, the question assumes access to 'Table 1' without providing its content or context, making it unclear for those without direct access to the source material. To be clearer and more answerable for a general audience, the question could include a brief description of the content or key findings of 'Table 1', or alternatively, frame the question in a way that does not rely on specific, unpublished documents.",
-                    "verdict": 0,
+                    "verdict": "0",
                 }
             ).dict(),
         },
@@ -430,7 +444,7 @@ Provide feedback and a verdict in JSON format, including suggestions for improve
             "output": QuestionFilter.parse_obj(
                 {
                     "feedback": "The question asks for the configuration of the UL2 training objective within the OpenMoE framework and the rationale behind its suitability for pre-training. It is clear in specifying the topic of interest (UL2 training objective, OpenMoE) and seeks detailed information on both the configuration and the reasons for its effectiveness in pre-training. However, the question might be challenging for those unfamiliar with the specific terminology or the context of OpenMoE and UL2. For broader clarity and answerability, it would be helpful if the question included a brief explanation or context about OpenMoE and the UL2 training objective, or clarified the aspects of pre-training effectiveness it refers to (e.g., efficiency, accuracy, generalization).",
-                    "verdict": 1,
+                    "verdict": "1",
                 }
             ).dict(),
         },
@@ -439,7 +453,7 @@ Provide feedback and a verdict in JSON format, including suggestions for improve
             "output": QuestionFilter.parse_obj(
                 {
                     "feedback": "The question seeks detailed information on the UL2 training objective's configuration within the OpenMoE framework, mentioning 'the provided context' without actually including or describing this context within the query. This makes the question unclear for those who do not have access to the unspecified context. For the question to be clear and answerable, it needs to either include the relevant context directly within the question or be framed in a way that does not require external information. Detailing the specific aspects of the configuration of interest (e.g., loss functions, data augmentation techniques) could also help clarify the query.",
-                    "verdict": 0,
+                    "verdict": "0",
                 }
             ).dict(),
         },
@@ -464,7 +478,7 @@ evolution_elimination_prompt = Prompt(
             "output": EvolutionElimination.parse_obj(
                 {
                     "reason": "While both questions deal with environmental issues, 'climate change' encompasses broader changes than 'global warming', leading to different depths of inquiry.",
-                    "verdict": 0,
+                    "verdict": "0",
                 }
             ).dict(),
         },
@@ -474,7 +488,7 @@ evolution_elimination_prompt = Prompt(
             "output": EvolutionElimination.parse_obj(
                 {
                     "reason": "Both questions ask for an explanation of the photosynthesis process in plants, sharing the same depth, breadth, and requirements for the answer.",
-                    "verdict": 1,
+                    "verdict": "1",
                 }
             ).dict(),
         },
@@ -484,7 +498,7 @@ evolution_elimination_prompt = Prompt(
             "output": EvolutionElimination.parse_obj(
                 {
                     "reason": "Both questions seek information about the positive effects of regular exercise on health. They require a similar level of detail in listing the health benefits.",
-                    "verdict": 1,
+                    "verdict": "1",
                 }
             ).dict(),
         },
