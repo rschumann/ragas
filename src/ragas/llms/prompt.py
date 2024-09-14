@@ -227,8 +227,15 @@ class Prompt(BaseModel):
             translate_to=language, input=self.instruction
         )
         translated_instruction = llm.generate_text(instruction_prompt).generations[0][0].text
-
         self.instruction = translated_instruction
+
+        # Translate the output_format_instruction if it exists
+        if self.output_format_instruction:
+            output_format_instruction_prompt = str_translation.format(
+                translate_to=language, input=self.output_format_instruction
+            )
+            translated_output_format_instruction = llm.generate_text(output_format_instruction_prompt).generations[0][0].text
+            self.output_format_instruction = translated_output_format_instruction
 
         # NOTE: this is a slow loop, consider Executor to fasten this
         results = []
