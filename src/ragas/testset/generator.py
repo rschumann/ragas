@@ -5,11 +5,10 @@ import logging
 import typing as t
 from dataclasses import dataclass
 from random import choices, sample
-
 import pandas as pd
+import shutil
+
 from datasets import Dataset
-from langchain_openai.chat_models import ChatOpenAI
-from langchain_openai.embeddings import OpenAIEmbeddings
 
 from ragas._analytics import TestsetGenerationEvent, track, track_was_completed
 from ragas.embeddings.base import (
@@ -34,9 +33,6 @@ from ragas.testset.evolutions import (
 from ragas.testset.extractor import KeyphraseExtractor
 from ragas.testset.filters import EvolutionFilter, NodeFilter, QuestionFilter
 from ragas.utils import check_if_sum_is_close, deprecated, get_feature_language, is_nan
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-import json
-import shutil
 
 if t.TYPE_CHECKING:
     from langchain_core.documents import Document as LCDocument
@@ -52,6 +48,11 @@ logger = logging.getLogger(__name__)
 
 Distributions = t.Dict[t.Any, float]
 DEFAULT_DISTRIBUTION = {simple: 0.5, reasoning: 0.25, multi_context: 0.25}
+
+
+class AdaptationError(Exception):
+    """Custom exception for adaptation errors."""
+    pass
 
 
 @dataclass
@@ -244,7 +245,7 @@ class TestsetGenerator:
         is_async: bool = True,
         raise_exceptions: bool = True,
         run_config: t.Optional[RunConfig] = None,
-    ):
+    ) -> TestDataset:
         distributions = distributions or DEFAULT_DISTRIBUTION
         # validate distributions
         if not check_if_sum_is_close(list(distributions.values()), 1.0, 3):
@@ -259,7 +260,7 @@ class TestsetGenerator:
         self.docstore.set_run_config(run_config)
 
         # init filters and evolutions
-        for evolution in distributions:
+        for evolution, probability in distributions.items():
             self.init_evolution(evolution)
             evolution.init(is_async=is_async, run_config=run_config)
 
@@ -330,9 +331,69 @@ class TestsetGenerator:
 
         return test_dataset
 
-    # Define cache validity check here
+    def adapt(self, language: str, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None) -> None:
+        for attempt in range(3):
+            try:
+                assert isinstance(self.docstore, InMemoryDocumentStore), "Must be an instance of in-memory DocumentStore"
+                assert self.docstore.extractor is not None, "Extractor is not set"
+
+                logger.info(f"Adapting TestsetGenerator to language: {language}")
+                logger.info(f"Cache directory: {cache_dir}")
+
+                if not cache_dir:
+                    logger.warning("No cache directory provided. Adaptation will not be cached.")
+                    self._perform_adaptation(language, evolutions)
+                    return
+
+                language_cache_dir = os.path.join(cache_dir, language)
+
+                # Initial cache validation
+                if not self.is_cache_valid(cache_dir, language):
+                    logger.info(f"Invalid or incomplete cache for {language}. Deleting cache directory.")
+                    if os.path.exists(language_cache_dir):
+                        shutil.rmtree(language_cache_dir)
+                    # Proceed with adaptation without re-checking cache
+                    self._perform_adaptation(language, evolutions, cache_dir)
+                else:
+                    logger.info(f"Valid cache exists for {language}, skipping adaptation.")
+                    return
+
+                # Post-adaptation cache validation
+                if not self.is_cache_valid(cache_dir, language):
+                    raise AdaptationError("Cache validation failed after adaptation")
+                else:
+                    # Cache is valid after adaptation
+                    return
+            except AdaptationError as e:
+                logger.error(f"Adaptation attempt {attempt + 1} failed: {e}")
+                if attempt == 2:
+                    raise
+                else:
+                    logger.info("Retrying adaptation...")
+                    continue
+
+    def _perform_adaptation(self, language: str, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None) -> None:
+        logger.info("Adapting docstore extractor")
+        self.docstore.extractor.adapt(language=language, cache_dir=cache_dir)
+        self.docstore.extractor.save(cache_dir=cache_dir)
+        logger.info(f"Extractor adapted and saved for {language}")
+
+        for evolution in evolutions:
+            self.init_evolution(evolution)
+            evolution.init()
+            evolution.adapt(language=language, cache_dir=cache_dir)
+            evolution.save(cache_dir=cache_dir)
+
     def is_cache_valid(self, cache_dir: str, language: str) -> bool:
-        """Check if the cache is valid by ensuring necessary files exist."""
+        """Check if the cache is valid by ensuring all necessary files exist."""
+        missing_files = self.get_missing_files(cache_dir, language)
+        if missing_files:
+            logger.info(f"Cache is incomplete, missing: {', '.join(missing_files)}")
+            return False
+        return True
+
+    def get_missing_files(self, cache_dir: str, language: str) -> t.List[str]:
+        """Get a list of missing required files in the cache."""
         language_cache_dir = os.path.join(cache_dir, language)
         required_files = [
             'answer_formulate.json',
@@ -348,70 +409,4 @@ class TestsetGenerator:
             'score_context.json',
             'seed_question.json'
         ]
-        for file in required_files:
-            if not os.path.exists(os.path.join(language_cache_dir, file)):
-                logger.info(f"Cache is incomplete, missing {file}")
-                return False
-        return True
-
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=(retry_if_exception_type(json.JSONDecodeError) | retry_if_exception_type(ValueError))
-    )
-    def adapt(self, language: str, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None) -> None:
-        assert isinstance(self.docstore, InMemoryDocumentStore), "Must be an instance of in-memory docstore"
-        assert self.docstore.extractor is not None, "Extractor is not set"
-
-        logger.info(f"Adapting TestsetGenerator to language: {language}")
-        logger.info(f"Cache directory: {cache_dir}")
-
-        # Check if cache already exists and is valid
-        language_cache_dir = os.path.join(cache_dir, language) if cache_dir else None
-        if language_cache_dir and os.path.exists(language_cache_dir):
-            logger.info(f"Cache exists for {language}, skipping adaptation.")
-            return  # Skip adaptation if cache exists
-
-        try:
-            logger.info("Adapting docstore extractor")
-            self.docstore.extractor.adapt(language=language, cache_dir=cache_dir)
-            self.docstore.extractor.save(cache_dir=cache_dir)
-            logger.info(f"Extractor adapted and saved for {language}")
-
-            for evolution in evolutions:
-                self.init_evolution(evolution)
-                evolution.init()
-                evolution.adapt(language=language, cache_dir=cache_dir)
-                evolution.save(cache_dir=cache_dir)
-        except json.JSONDecodeError as jde:
-            logger.error(f"JSON decode error during adaptation: {str(jde)}")
-            raise
-        except ValueError as ve:
-            logger.error(f"Value error during adaptation: {str(ve)}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error during adaptation: {str(e)}")
-            raise
-
-
-    def save(
-        self, evolutions: t.List[Evolution], cache_dir: t.Optional[str] = None
-    ) -> None:
-        """
-        Save the docstore prompts to a path.
-        """
-        assert isinstance(
-            self.docstore, InMemoryDocumentStore
-        ), "Must be an instance of in-memory docstore"
-        assert self.docstore.extractor is not None, "Extractor is not set"
-
-        self.docstore.extractor.save(cache_dir)
-        for evolution in evolutions:
-            assert evolution.node_filter is not None, "NodeFilter is not set"
-            assert evolution.question_filter is not None, "QuestionFilter is not set"
-            if isinstance(evolution, ComplexEvolution):
-                assert (
-                    evolution.evolution_filter is not None
-                ), "EvolutionFilter is not set"
-            evolution.save(cache_dir=cache_dir)
+        return [file for file in required_files if not os.path.exists(os.path.join(language_cache_dir, file))]

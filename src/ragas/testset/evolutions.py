@@ -25,8 +25,6 @@ from ragas.testset.prompts import (
     reasoning_question_prompt,
     seed_question_prompt,
 )
-import json
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +114,7 @@ class Evolution:
     ) -> EvolutionOutput:
         if update_count:
             current_tries += 1
+        logger.info("retrying evolution: %s times", current_tries)
         if current_tries > self.max_tries:
             # TODO: make this into a custom exception
             raise MaxRetriesExceeded(self)
@@ -236,6 +235,7 @@ class Evolution:
             results.generations[0][0].text.strip(), self.generator_llm
         )
         answer = answer if isinstance(answer, dict) else {}
+        logger.debug("answer generated: %s", answer)
         answer = (
             np.nan if answer.get("verdict") == "-1" else answer.get("answer", np.nan)
         )
@@ -247,40 +247,27 @@ class Evolution:
             evolution_type=evolution_type,
             metadata=[n.metadata for n in relevant_context.nodes],
         )
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=(retry_if_exception_type(json.JSONDecodeError) | retry_if_exception_type(ValueError))
-    )
+
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
-        try:
-            logger.info(f"Starting adaptation for {self.__class__.__name__} to language: {language}")
-            assert self.node_filter is not None, "node filter cannot be None"
-            assert self.question_filter is not None, "question_filter cannot be None"
+        """
+        Adapt the filter to a different language.
+        """
+        assert self.node_filter is not None, "node filter cannot be None"
+        assert self.question_filter is not None, "question_filter cannot be None"
 
-            logger.info("Adapting question_answer_prompt")
-            self.question_answer_prompt = self.question_answer_prompt.adapt(
+        self.question_answer_prompt = self.question_answer_prompt.adapt(
+            language, self.generator_llm, cache_dir
+        )
+        self.find_relevant_context_prompt = self.find_relevant_context_prompt.adapt(
+            language, self.generator_llm, cache_dir
+        )
+        self.rewrite_invalid_question_prompt = (
+            self.rewrite_invalid_question_prompt.adapt(
                 language, self.generator_llm, cache_dir
             )
-            logger.info("Adapting find_relevant_context_prompt")
-            self.find_relevant_context_prompt = self.find_relevant_context_prompt.adapt(
-                language, self.generator_llm, cache_dir
-            )
-            logger.info("Adapting rewrite_invalid_question_prompt")
-            self.rewrite_invalid_question_prompt = (
-                self.rewrite_invalid_question_prompt.adapt(
-                    language, self.generator_llm, cache_dir
-                )
-            )
-            logger.info("Adapting node_filter")
-            self.node_filter.adapt(language, cache_dir)
-            logger.info("Adapting question_filter")
-            self.question_filter.adapt(language, cache_dir)
-
-            logger.info(f"Successfully adapted {self.__class__.__name__} to {language}")
-        except Exception as e:
-            logger.error(f"Error during {self.__class__.__name__} adaptation: {str(e)}")
-            raise
+        )
+        self.node_filter.adapt(language, cache_dir)
+        self.question_filter.adapt(language, cache_dir)
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         """
@@ -315,6 +302,7 @@ class SimpleEvolution(Evolution):
                 current_tries, current_nodes, update_count=False
             )
 
+        logger.debug("keyphrases in merged node: %s", merged_node.keyphrases)
         results = await self.generator_llm.generate(
             prompt=self.seed_question_prompt.format(
                 context=merged_node.page_content,
@@ -324,6 +312,7 @@ class SimpleEvolution(Evolution):
             )
         )
         seed_question = results.generations[0][0].text
+        logger.info("seed question generated: %s", seed_question)
         is_valid_question, feedback = await self.question_filter.filter(seed_question)
 
         if not is_valid_question:
@@ -331,6 +320,7 @@ class SimpleEvolution(Evolution):
             seed_question, current_nodes = await self.fix_invalid_question(
                 seed_question, current_nodes, feedback
             )
+            logger.info("rewritten question: %s", seed_question)
             is_valid_question, _ = await self.question_filter.filter(seed_question)
             if not is_valid_question:
                 # retry with new nodes added
@@ -343,17 +333,10 @@ class SimpleEvolution(Evolution):
         return hash(self.__class__.__name__)
 
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
-        try:
-            logger.info(f"Starting adaptation for SimpleEvolution to language: {language}")
-            super().adapt(language, cache_dir)
-            logger.info("Adapting seed_question_prompt")
-            self.seed_question_prompt = self.seed_question_prompt.adapt(
-                language, self.generator_llm, cache_dir
-            )
-            logger.info(f"Successfully adapted SimpleEvolution to {language}")
-        except Exception as e:
-            logger.error(f"Error during SimpleEvolution adaptation: {str(e)}")
-            raise
+        super().adapt(language, cache_dir)
+        self.seed_question_prompt = self.seed_question_prompt.adapt(
+            language, self.generator_llm, cache_dir
+        )
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         super().save(cache_dir)
@@ -399,6 +382,11 @@ class ComplexEvolution(Evolution):
         simple_question, current_nodes, _ = await self.se._aevolve(
             current_tries, current_nodes
         )
+        logger.debug(
+            "[%s] simple question generated: %s",
+            self.__class__.__name__,
+            simple_question,
+        )
 
         merged_node = self.merge_nodes(current_nodes)
         result = await self.generator_llm.generate(
@@ -415,6 +403,7 @@ class ComplexEvolution(Evolution):
             reasoning_question, current_nodes = await self.fix_invalid_question(
                 reasoning_question, current_nodes, feedback
             )
+            logger.info("rewritten question: %s", reasoning_question)
             is_valid_question, _ = await self.question_filter.filter(reasoning_question)
             if not is_valid_question:
                 # retry with new nodes added
@@ -425,34 +414,33 @@ class ComplexEvolution(Evolution):
         compressed_question = await self._transform_question(
             prompt=self.compress_question_prompt, question=reasoning_question
         )
+        logger.debug(
+            "[%s] question compressed: %s",
+            self.__class__.__name__,
+            reasoning_question,
+        )
 
         assert self.evolution_filter is not None, "evolution filter cannot be None"
         if await self.evolution_filter.filter(simple_question, compressed_question):
             # retry
             current_nodes = self.se._get_new_random_node()
+            logger.debug(
+                "evolution_filter failed, retrying with %s", len(current_nodes.nodes)
+            )
             return await self.aretry_evolve(current_tries, current_nodes)
 
         return compressed_question, current_nodes
 
     def adapt(self, language: str, cache_dir: t.Optional[str] = None) -> None:
-        try:
-            logger.info(f"Starting adaptation for ComplexEvolution to language: {language}")
-            assert self.evolution_filter is not None, "evolution filter cannot be None"
-            assert self.se is not None, "simple evolution cannot be None"
+        assert self.evolution_filter is not None, "evolution filter cannot be None"
+        assert self.se is not None, "simple evolution cannot be None"
 
-            super().adapt(language, cache_dir)
-            logger.info("Adapting SimpleEvolution")
-            self.se.adapt(language, cache_dir)
-            logger.info("Adapting compress_question_prompt")
-            self.compress_question_prompt = self.compress_question_prompt.adapt(
-                language, self.generator_llm, cache_dir
-            )
-            logger.info("Adapting evolution_filter")
-            self.evolution_filter.adapt(language, cache_dir)
-            logger.info(f"Successfully adapted ComplexEvolution to {language}")
-        except Exception as e:
-            logger.error(f"Error during ComplexEvolution adaptation: {str(e)}")
-            raise
+        super().adapt(language, cache_dir)
+        self.se.adapt(language, cache_dir)
+        self.compress_question_prompt = self.compress_question_prompt.adapt(
+            language, self.generator_llm, cache_dir
+        )
+        self.evolution_filter.adapt(language, cache_dir)
 
     def save(self, cache_dir: t.Optional[str] = None) -> None:
         assert self.evolution_filter is not None, "evolution filter cannot be None"
@@ -481,6 +469,9 @@ class MultiContextEvolution(ComplexEvolution):
         simple_question, current_nodes, _ = await self.se._aevolve(
             current_tries, current_nodes
         )
+        logger.debug(
+            "[MultiContextEvolution] simple question generated: %s", simple_question
+        )
         # find a similar node and generate a question based on both
         merged_node = self.merge_nodes(current_nodes)
         similar_node = self.docstore.get_similar(merged_node, top_k=1)
@@ -502,6 +493,9 @@ class MultiContextEvolution(ComplexEvolution):
         )
         results = await self.generator_llm.generate(prompt=prompt)
         question = results.generations[0][0].text.strip()
+        logger.debug(
+            "[MultiContextEvolution] multicontext question generated: %s", question
+        )
         is_valid_question, feedback = await self.question_filter.filter(question)
         if not is_valid_question:
             # retry
@@ -509,6 +503,7 @@ class MultiContextEvolution(ComplexEvolution):
             question, current_nodes = await self.fix_invalid_question(
                 question, current_nodes, feedback
             )
+            logger.info("rewritten question: %s", question)
             is_valid_question, _ = await self.question_filter.filter(question)
 
             if not is_valid_question:
@@ -519,6 +514,10 @@ class MultiContextEvolution(ComplexEvolution):
         # compress the question
         compressed_question = await self._transform_question(
             prompt=self.compress_question_prompt, question=question
+        )
+        logger.debug(
+            "[MultiContextEvolution] multicontext question compressed: %s",
+            compressed_question,
         )
 
         assert self.evolution_filter is not None, "evolution filter cannot be None"

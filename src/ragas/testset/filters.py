@@ -57,10 +57,7 @@ class NodeFilter(Filter):
         output = results.generations[0][0].text.strip()
         output = await context_scoring_parser.aparse(output, prompt, self.llm)
         output = output.dict() if output is not None else {}
-        if len(output.values()) == 0:
-            output['score'] = 0
-        else:
-            output["score"] = sum(output.values()) / len(output.values())
+        output["score"] = sum(output.values()) / len(output.values())
         logger.debug("context scoring: %s", output)
         output.update({"score": output.get("score", 0) >= self.threshold})
         return output

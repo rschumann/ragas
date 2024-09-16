@@ -1,4 +1,3 @@
-# prompt.py from llms
 from __future__ import annotations
 
 import ast
@@ -222,21 +221,6 @@ class Prompt(BaseModel):
                 ):
                     output_keys.append([get_all_keys(item) for item in output])
 
-        # Translate the instruction
-        instruction_prompt = str_translation.format(
-            translate_to=language, input=self.instruction
-        )
-        translated_instruction = llm.generate_text(instruction_prompt).generations[0][0].text
-        self.instruction = translated_instruction
-
-        # Translate the output_format_instruction if it exists
-        if self.output_format_instruction:
-            output_format_instruction_prompt = str_translation.format(
-                translate_to=language, input=self.output_format_instruction
-            )
-            translated_output_format_instruction = llm.generate_text(output_format_instruction_prompt).generations[0][0].text
-            self.output_format_instruction = translated_output_format_instruction
-
         # NOTE: this is a slow loop, consider Executor to fasten this
         results = []
         for p in prompts:
@@ -285,21 +269,21 @@ class Prompt(BaseModel):
 
         return self
 
-    def save(self, cache_dir: t.Optional[str] = None) -> None:
+    def save(self, cache_dir: t.Optional[str] = None):
         cache_dir = cache_dir if cache_dir else get_cache_dir()
-        language_dir = os.path.join(cache_dir, self.language)
-        os.makedirs(language_dir, exist_ok=True)
-        file_path = os.path.join(language_dir, f"{self.name}.json")
-        with open(file_path, "w", encoding='utf-8') as f:
-            json.dump(self.dict(), f, ensure_ascii=False, indent=2)
+        cache_dir = os.path.join(cache_dir, self.language)
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+
+        cache_path = os.path.join(cache_dir, f"{self.name}.json")
+        with open(cache_path, "w") as file:
+            json.dump(self.dict(), file, indent=4)
 
     @classmethod
-    def _load(cls, language: str, name: str, cache_dir: t.Optional[str] = None) -> Prompt:
-        cache_dir = cache_dir if cache_dir else get_cache_dir()
-        file_path = os.path.join(cache_dir, language, f"{name}.json")
-        with open(file_path, "r", encoding='utf-8') as f:
-            data = json.load(f)
-        return cls.parse_obj(data)
+    def _load(cls, language: str, name: str, cache_dir: str) -> Prompt:
+        logger.info("Loading %s from %s", name, cache_dir)
+        path = os.path.join(cache_dir, language, f"{name}.json")
+        return cls(**json.load(open(path)))
 
 
 str_translation = Prompt(
